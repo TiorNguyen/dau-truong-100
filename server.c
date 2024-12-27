@@ -106,14 +106,11 @@ int join_room(int room_id, int client_socket) {
 
 // Xoá phòng, dời những phòng sau nó lên
 void delete_room(int room_id) {
-    // Dịch chuyển các phòng ở phía sau lên
     for (int i = room_id; i < room_count - 1; i++) {
         rooms[i] = rooms[i + 1];
-        // Lưu ý: cần cập nhật lại id của các phòng dời lên
-        rooms[i].id = i;
     }
     room_count--;
-    printf("DEBUG: Room %d deleted. Current room_count=%d\n", room_id, room_count);
+    printf("DEBUG: Room %d deleted.\n", room_id);
 }
 
 int leave_room(int client_socket) {
@@ -277,18 +274,10 @@ void *handle_player_question(void *args) {
 }
 
 // -----------------------------------------
-// => SỬA CHÍNH: xóa phòng sau khi game kết thúc
 void start_game(Room *room) {
-    // Lưu lại id phòng, vì xíu nữa delete_room() sẽ làm room* này mất hiệu lực
-    int old_room_id = room->id;
-
     FILE *file = fopen("question.txt", "r");
     if (!file) {
         printf("Could not open question file.\n");
-        // Nếu không mở được file câu hỏi, ta cũng nên xóa phòng
-        pthread_mutex_lock(&room_mutex);
-        delete_room(old_room_id);
-        pthread_mutex_unlock(&room_mutex);
         return;
     }
 
@@ -335,7 +324,7 @@ void start_game(Room *room) {
                 }
             }
             fclose(file);
-            goto END_GAME; // nhảy xuống cuối để xóa phòng
+            return;
         }
 
         // Gửi câu hỏi cho tất cả các player còn trụ
@@ -381,50 +370,38 @@ void start_game(Room *room) {
             send(last_player_socket, "Congratulations! You are the winner.\n", 37, 0);
             printf("DEBUG: Player (socket %d) is the winner!\n", last_player_socket);
             fclose(file);
-            goto END_GAME;
+            return;
         }
-
         if (active_count == 0) {
             // Không còn ai
             printf("DEBUG: No winners. All players eliminated.\n");
             fclose(file);
-            goto END_GAME;
+            return;
         }
-        // Tiếp tục sang câu hỏi tiếp theo
     }
 
-    // Đã hết câu hỏi => hoà hoặc 1-2 người còn lại
+    // Đã hết câu hỏi
     fclose(file);
 
-    {
-        // Kiểm tra lại xem có bao nhiêu người trụ
-        int active_count = 0;
-        int last_player_socket = -1;
-        for (int i = 0; i < room->player_count; i++) {
-            if (player_status[i] == 1 && room->player_sockets[i] != -1) {
-                active_count++;
-                last_player_socket = room->player_sockets[i];
-            }
-        }
-
-        if (active_count == 1) {
-            send(last_player_socket, "Congratulations! You are the winner.\n", 37, 0);
-        } else if (active_count > 1) {
-            // Hoà
-            for (int i = 0; i < room->player_count; i++) {
-                if (player_status[i] == 1 && room->player_sockets[i] != -1) {
-                    send(room->player_sockets[i], "No more questions. It's a draw!\n", 32, 0);
-                }
-            }
+    int active_count = 0;
+    int last_player_socket = -1;
+    for (int i = 0; i < room->player_count; i++) {
+        if (player_status[i] == 1 && room->player_sockets[i] != -1) {
+            active_count++;
+            last_player_socket = room->player_sockets[i];
         }
     }
 
-END_GAME:
-    // *** XÓA PHÒNG LUÔN KHI GAME KẾT THÚC ***
-    pthread_mutex_lock(&room_mutex);
-    delete_room(old_room_id);
-    pthread_mutex_unlock(&room_mutex);
-    return;
+    if (active_count == 1) {
+        send(last_player_socket, "Congratulations! You are the winner.\n", 37, 0);
+    } else if (active_count > 1) {
+        // Hoà
+        for (int i = 0; i < room->player_count; i++) {
+            if (player_status[i] == 1 && room->player_sockets[i] != -1) {
+                send(room->player_sockets[i], "No more questions. It's a draw!\n", 32, 0);
+            }
+        }
+    }
 }
 
 // -----------------------------------------
@@ -500,7 +477,6 @@ void *handle_client(void *arg) {
                 // Nếu ret == 2 => vừa đủ 3 => start_game
                 if (ret == 2) {
                     pthread_mutex_lock(&room_mutex);
-                    // Lưu room pointer tạm trước khi unlock
                     Room *r = &rooms[room_id]; 
                     pthread_mutex_unlock(&room_mutex);
 
