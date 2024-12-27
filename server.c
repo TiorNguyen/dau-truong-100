@@ -275,6 +275,7 @@ void *handle_player_question(void *args) {
 
 // -----------------------------------------
 void start_game(Room *room) {
+    int old_room_id = room->id;
     FILE *file = fopen("question.txt", "r");
     if (!file) {
         printf("Could not open question file.\n");
@@ -324,6 +325,9 @@ void start_game(Room *room) {
                 }
             }
             fclose(file);
+            pthread_mutex_lock(&room_mutex);
+            delete_room(old_room_id);
+            pthread_mutex_unlock(&room_mutex);
             return;
         }
 
@@ -370,12 +374,18 @@ void start_game(Room *room) {
             send(last_player_socket, "Congratulations! You are the winner.\n", 37, 0);
             printf("DEBUG: Player (socket %d) is the winner!\n", last_player_socket);
             fclose(file);
+            pthread_mutex_lock(&room_mutex);
+            delete_room(old_room_id);
+            pthread_mutex_unlock(&room_mutex);
             return;
         }
         if (active_count == 0) {
             // Không còn ai
             printf("DEBUG: No winners. All players eliminated.\n");
             fclose(file);
+            pthread_mutex_lock(&room_mutex);
+            delete_room(old_room_id);
+            pthread_mutex_unlock(&room_mutex);
             return;
         }
     }
@@ -394,7 +404,8 @@ void start_game(Room *room) {
 
     if (active_count == 1) {
         send(last_player_socket, "Congratulations! You are the winner.\n", 37, 0);
-    } else if (active_count > 1) {
+    } 
+    else if (active_count > 1) {
         // Hoà
         for (int i = 0; i < room->player_count; i++) {
             if (player_status[i] == 1 && room->player_sockets[i] != -1) {
@@ -402,6 +413,9 @@ void start_game(Room *room) {
             }
         }
     }
+    pthread_mutex_lock(&room_mutex);
+    delete_room(old_room_id);
+    pthread_mutex_unlock(&room_mutex);
 }
 
 // -----------------------------------------
